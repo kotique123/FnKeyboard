@@ -1,5 +1,7 @@
 # Fn Keyboard
 
+![Example](example.png)
+
 A lightweight macOS menu-bar utility that puts the Mac function keys (F1–F12) at your fingertips. Click an on-screen keycap and the real system action fires — brightness, media controls, volume, and more.
 
 ![macOS](https://img.shields.io/badge/macOS-13.0%2B-blue?logo=apple)
