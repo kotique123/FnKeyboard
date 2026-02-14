@@ -1,0 +1,29 @@
+# ── Build artifacts ──
+build/
+.build/
+DerivedData/
+*.app
+*.dmg
+*.icns
+
+# ── Xcode / Swift PM ──
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# ── macOS junk ──
+.DS_Store
+*.swp
+*~
+
+# ── IDE ──
+.vscode/
+.idea/
