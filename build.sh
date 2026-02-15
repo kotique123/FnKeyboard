@@ -1,109 +1,141 @@
 #!/bin/bash
 # ──────────────────────────────────────────────
 # build.sh — Builds FnKeyboard.app and optional DMG
-# Usage:  ./build.sh          (build only)
-#         ./build.sh --dmg    (build + create DMG)
+# Usage:  ./build.sh                (build for current arch)
+#         ./build.sh --dmg          (build + create DMG for current arch)
+#         ./build.sh --release      (build + DMG for both arm64 and x86_64)
 # ──────────────────────────────────────────────
 set -euo pipefail
 
 APP_NAME="FnKeyboard"
 BUILD_DIR="build"
-APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
-CONTENTS="$APP_BUNDLE/Contents"
-MACOS_DIR="$CONTENTS/MacOS"
-RESOURCES_DIR="$CONTENTS/Resources"
 ENTITLEMENTS="FnKeyboard.entitlements"
 
-echo "🔨  Building $APP_NAME …"
+# ── Helper Functions ──
 
-# Clean previous build
-rm -rf "$BUILD_DIR"
-mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
-
-# Generate icon if missing
-if [ ! -f AppIcon.icns ]; then
-    echo "🎨  Generating app icon …"
-    # Verify generate_icon.swift integrity before execution (supply-chain protection).
-    # Uses SHA-256 hash of the committed version to prevent TOCTOU attacks.
-    if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null; then
-        COMMITTED_HASH=$(git show HEAD:generate_icon.swift 2>/dev/null | shasum -a 256 | awk '{print $1}')
-        CURRENT_HASH=$(shasum -a 256 generate_icon.swift | awk '{print $1}')
-        if [ "$COMMITTED_HASH" != "$CURRENT_HASH" ]; then
-            echo "⚠️  generate_icon.swift hash mismatch — file differs from committed version."
-            echo "   Committed: $COMMITTED_HASH"
-            echo "   Current:   $CURRENT_HASH"
-            exit 1
+generate_icon_if_needed() {
+    if [ ! -f AppIcon.icns ]; then
+        echo "🎨  Generating app icon …"
+        # Verify generate_icon.swift integrity before execution (supply-chain protection).
+        # Uses SHA-256 hash of the committed version to prevent TOCTOU attacks.
+        if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null; then
+            COMMITTED_HASH=$(git show HEAD:generate_icon.swift 2>/dev/null | shasum -a 256 | awk '{print $1}')
+            CURRENT_HASH=$(shasum -a 256 generate_icon.swift | awk '{print $1}')
+            if [ "$COMMITTED_HASH" != "$CURRENT_HASH" ]; then
+                echo "⚠️  generate_icon.swift hash mismatch — file differs from committed version."
+                echo "   Committed: $COMMITTED_HASH"
+                echo "   Current:   $CURRENT_HASH"
+                exit 1
+            fi
         fi
+        swift generate_icon.swift AppIcon.icns
     fi
-    swift generate_icon.swift AppIcon.icns
-fi
+}
 
-# Resolve macOS SDK
-SDK_PATH=$(xcrun --show-sdk-path)
-ARCH=$(uname -m)                        # arm64 or x86_64
+# Build a single .app bundle for the given architecture.
+# Usage: build_app <arch>   (arch = arm64 | x86_64)
+# Outputs to: build/<arch>/FnKeyboard.app
+build_app() {
+    local arch="$1"
+    local app_bundle="$BUILD_DIR/$arch/$APP_NAME.app"
+    local contents="$app_bundle/Contents"
+    local macos_dir="$contents/MacOS"
+    local resources_dir="$contents/Resources"
 
-# Compile Swift sources
-swiftc -parse-as-library \
-    -sdk "$SDK_PATH" \
-    -target "${ARCH}-apple-macos13.0" \
-    -O \
-    Sources/*.swift \
-    -o "$MACOS_DIR/$APP_NAME"
+    echo "🔨  Building $APP_NAME ($arch) …"
+    rm -rf "$BUILD_DIR/$arch"
+    mkdir -p "$macos_dir" "$resources_dir"
 
-# Copy resources into the bundle
-cp Info.plist "$CONTENTS/"
-cp AppIcon.icns "$RESOURCES_DIR/"
+    local sdk_path
+    sdk_path=$(xcrun --show-sdk-path)
 
-# Code sign with hardened runtime (prevents DYLD_INSERT_LIBRARIES injection)
-echo "🔏  Signing with hardened runtime …"
-if [ -n "${CODESIGN_IDENTITY:-}" ]; then
-    codesign --force --options runtime \
-        --timestamp \
-        --entitlements "$ENTITLEMENTS" \
-        --sign "$CODESIGN_IDENTITY" \
-        "$APP_BUNDLE"
-    echo "   Signed with identity: $CODESIGN_IDENTITY"
-else
-    echo "⚠️  No CODESIGN_IDENTITY set — using ad-hoc signature (NOT suitable for distribution)."
-    codesign --force --options runtime \
-        --entitlements "$ENTITLEMENTS" \
-        --sign - \
-        "$APP_BUNDLE"
-    echo "   Ad-hoc signed. Set CODESIGN_IDENTITY env var for distribution signing."
-fi
+    swiftc -parse-as-library \
+        -sdk "$sdk_path" \
+        -target "${arch}-apple-macos13.0" \
+        -O \
+        Sources/*.swift \
+        -o "$macos_dir/$APP_NAME"
 
-# Touch bundle to flush macOS icon cache
-touch "$APP_BUNDLE"
+    cp Info.plist "$contents/"
+    cp AppIcon.icns "$resources_dir/"
 
-echo "✅  Built successfully → $APP_BUNDLE"
+    # Code sign with hardened runtime
+    echo "🔏  Signing ($arch) with hardened runtime …"
+    if [ -n "${CODESIGN_IDENTITY:-}" ]; then
+        codesign --force --options runtime \
+            --timestamp \
+            --entitlements "$ENTITLEMENTS" \
+            --sign "$CODESIGN_IDENTITY" \
+            "$app_bundle"
+        echo "   Signed with identity: $CODESIGN_IDENTITY"
+    else
+        echo "⚠️  No CODESIGN_IDENTITY set — using ad-hoc signature (NOT suitable for distribution)."
+        codesign --force --options runtime \
+            --entitlements "$ENTITLEMENTS" \
+            --sign - \
+            "$app_bundle"
+    fi
 
-# ── Optional DMG creation ──
-if [[ "${1:-}" == "--dmg" ]]; then
-    DMG_NAME="${APP_NAME}.dmg"
-    DMG_PATH="$BUILD_DIR/$DMG_NAME"
-    DMG_TEMP="$BUILD_DIR/dmg_staging"
+    touch "$app_bundle"
+    echo "✅  Built successfully → $app_bundle"
+}
 
-    echo "📦  Creating DMG …"
-    rm -rf "$DMG_TEMP" "$DMG_PATH"
-    mkdir -p "$DMG_TEMP"
+# Create a DMG from an .app bundle.
+# Usage: create_dmg <app_bundle_path> <dmg_output_path>
+create_dmg() {
+    local app_bundle="$1"
+    local dmg_path="$2"
+    local dmg_temp="$BUILD_DIR/dmg_staging_$$"
 
-    # Copy app into staging
-    cp -R "$APP_BUNDLE" "$DMG_TEMP/"
+    echo "📦  Creating DMG → $dmg_path …"
+    rm -rf "$dmg_temp" "$dmg_path"
+    mkdir -p "$dmg_temp"
 
-    # Create symlink to /Applications for drag-and-drop install
-    ln -s /Applications "$DMG_TEMP/Applications"
+    cp -R "$app_bundle" "$dmg_temp/"
+    ln -s /Applications "$dmg_temp/Applications"
 
-    # Create the DMG
     hdiutil create \
         -volname "$APP_NAME" \
-        -srcfolder "$DMG_TEMP" \
+        -srcfolder "$dmg_temp" \
         -ov -format UDZO \
-        "$DMG_PATH" \
+        "$dmg_path" \
         > /dev/null
 
-    rm -rf "$DMG_TEMP"
-    echo "✅  DMG created → $DMG_PATH"
-    echo "   Share this file to install on another Mac."
-fi
+    rm -rf "$dmg_temp"
+    echo "✅  DMG created → $dmg_path"
+}
 
-echo "▶   Run with:  open $APP_BUNDLE"
+# ── Main ──
+
+generate_icon_if_needed
+
+if [[ "${1:-}" == "--release" ]]; then
+    # ── Release mode: build both architectures + DMG for each ──
+    RELEASE_DIR="release"
+    rm -rf "$RELEASE_DIR"
+    mkdir -p "$RELEASE_DIR"
+
+    for arch in arm64 x86_64; do
+        build_app "$arch"
+        dmg_name="${APP_NAME}-macos-${arch}.dmg"
+        create_dmg "$BUILD_DIR/$arch/$APP_NAME.app" "$RELEASE_DIR/$dmg_name"
+    done
+
+    echo ""
+    echo "🎉  Release DMGs:"
+    echo "   $RELEASE_DIR/${APP_NAME}-macos-arm64.dmg   (Apple Silicon)"
+    echo "   $RELEASE_DIR/${APP_NAME}-macos-x86_64.dmg  (Intel)"
+
+elif [[ "${1:-}" == "--dmg" ]]; then
+    # ── Single-arch build + DMG ──
+    ARCH=$(uname -m)
+    build_app "$ARCH"
+    create_dmg "$BUILD_DIR/$ARCH/$APP_NAME.app" "$BUILD_DIR/${APP_NAME}.dmg"
+    echo "▶   Run with:  open $BUILD_DIR/$ARCH/$APP_NAME.app"
+
+else
+    # ── Default: single-arch build only ──
+    ARCH=$(uname -m)
+    build_app "$ARCH"
+    echo "▶   Run with:  open $BUILD_DIR/$ARCH/$APP_NAME.app"
+fi

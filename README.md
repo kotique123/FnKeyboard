@@ -43,20 +43,28 @@ git clone https://github.com/<your-username>/FnKeyboard.git
 cd FnKeyboard
 chmod +x build.sh
 ./build.sh
-open build/FnKeyboard.app
+open build/arm64/FnKeyboard.app   # or build/x86_64/ on Intel
+```
+
+### Create release DMGs (both architectures)
+
+```bash
+./build.sh --release
+# → release/FnKeyboard-macos-arm64.dmg   (Apple Silicon)
+# → release/FnKeyboard-macos-x86_64.dmg  (Intel)
 ```
 
 For distribution builds, sign with a Developer ID:
 
 ```bash
-CODESIGN_IDENTITY="Developer ID Application: Your Name" ./build.sh --dmg
+CODESIGN_IDENTITY="Developer ID Application: Your Name" ./build.sh --release
 ```
 
-### Create a distributable DMG
+### Create a single-architecture DMG
 
 ```bash
 ./build.sh --dmg
-# → build/FnKeyboard.dmg
+# → build/FnKeyboard.dmg (current architecture only)
 ```
 
 ## Permissions
@@ -81,7 +89,7 @@ FnKeyboard/
 ├── FnKeyboard.entitlements          # Hardened Runtime entitlements (no exceptions)
 ├── Info.plist                      # App metadata (LSUIElement = true)
 ├── Package.swift                   # Swift Package Manager manifest
-├── build.sh                        # One-step build + codesign + optional DMG
+├── build.sh                        # Build + codesign + DMG (single or dual-arch)
 ├── generate_icon.swift             # Standalone script to generate AppIcon.icns
 └── LICENSE
 ```
