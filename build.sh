@@ -12,6 +12,7 @@ APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 CONTENTS="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES_DIR="$CONTENTS/Resources"
+ENTITLEMENTS="FnKeyboard.entitlements"
 
 echo "🔨  Building $APP_NAME …"
 
@@ -22,6 +23,18 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 # Generate icon if missing
 if [ ! -f AppIcon.icns ]; then
     echo "🎨  Generating app icon …"
+    # Verify generate_icon.swift integrity before execution (supply-chain protection).
+    # Uses SHA-256 hash of the committed version to prevent TOCTOU attacks.
+    if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null; then
+        COMMITTED_HASH=$(git show HEAD:generate_icon.swift 2>/dev/null | shasum -a 256 | awk '{print $1}')
+        CURRENT_HASH=$(shasum -a 256 generate_icon.swift | awk '{print $1}')
+        if [ "$COMMITTED_HASH" != "$CURRENT_HASH" ]; then
+            echo "⚠️  generate_icon.swift hash mismatch — file differs from committed version."
+            echo "   Committed: $COMMITTED_HASH"
+            echo "   Current:   $CURRENT_HASH"
+            exit 1
+        fi
+    fi
     swift generate_icon.swift AppIcon.icns
 fi
 
@@ -40,6 +53,24 @@ swiftc -parse-as-library \
 # Copy resources into the bundle
 cp Info.plist "$CONTENTS/"
 cp AppIcon.icns "$RESOURCES_DIR/"
+
+# Code sign with hardened runtime (prevents DYLD_INSERT_LIBRARIES injection)
+echo "🔏  Signing with hardened runtime …"
+if [ -n "${CODESIGN_IDENTITY:-}" ]; then
+    codesign --force --options runtime \
+        --timestamp \
+        --entitlements "$ENTITLEMENTS" \
+        --sign "$CODESIGN_IDENTITY" \
+        "$APP_BUNDLE"
+    echo "   Signed with identity: $CODESIGN_IDENTITY"
+else
+    echo "⚠️  No CODESIGN_IDENTITY set — using ad-hoc signature (NOT suitable for distribution)."
+    codesign --force --options runtime \
+        --entitlements "$ENTITLEMENTS" \
+        --sign - \
+        "$APP_BUNDLE"
+    echo "   Ad-hoc signed. Set CODESIGN_IDENTITY env var for distribution signing."
+fi
 
 # Touch bundle to flush macOS icon cache
 touch "$APP_BUNDLE"

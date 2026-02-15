@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Hardened Runtime — no exceptions requested.
+         This provides maximum protection against:
+         - DYLD_INSERT_LIBRARIES code injection
+         - Unsigned executable memory
+         - Debugging by non-root processes
+
+         Accessibility permission (required for CGEvent tap and HID event posting)
+         is granted at runtime via System Settings → Privacy & Security. -->
+</dict>
+</plist>
