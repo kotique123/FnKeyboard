@@ -39,5 +39,8 @@
 
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
+
+    <key>NSAccessibilityUsageDescription</key>
+    <string>FnKeyboard needs Accessibility access to monitor function key presses and simulate media, brightness, and volume controls.</string>
 </dict>
 </plist>
