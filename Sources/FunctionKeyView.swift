@@ -11,6 +11,7 @@ struct FunctionKeyView: View {
 
     @State private var isHovered = false
     @State private var isPressed = false
+    @State private var lastTapTime: Date = .distantPast
 
     /// True when either tapped on-screen or physically pressed.
     private var isActive: Bool { isPressed || isPhysicallyPressed }
@@ -39,6 +40,11 @@ struct FunctionKeyView: View {
             }
         }
         .onTapGesture {
+            // Debounce rapid taps to prevent event flooding
+            let now = Date()
+            guard now.timeIntervalSince(lastTapTime) >= 0.2 else { return }
+            lastTapTime = now
+
             // Trigger the actual system function
             KeySimulator.simulateKeyPress(fnId: key.id)
 
