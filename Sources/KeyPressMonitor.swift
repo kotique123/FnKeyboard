@@ -113,9 +113,12 @@ final class KeyPressMonitor: ObservableObject {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
         }
         // Release the retained TapContext given to the C callback.
+        // Perform release on main thread to avoid race conditions if a callback is currently executing.
         if let ctx = tapContext {
-            Unmanaged.passUnretained(ctx).release()
             tapContext = nil
+            DispatchQueue.main.async {
+                Unmanaged.passUnretained(ctx).release()
+            }
         }
         eventTap = nil
         runLoopSource = nil

@@ -126,11 +126,18 @@ let sizeSpecs: [(point: Int, pixel: Int, suffix: String)] = [
     (512, 512,  "icon_512x512.png"),
     (512, 1024, "icon_512x512@2x.png"),
 ]
-let iconDir = "/tmp/FnKeyboard.iconset"
 
 let fm = FileManager.default
-try? fm.removeItem(atPath: iconDir)
-try! fm.createDirectory(atPath: iconDir, withIntermediateDirectories: true)
+// Use a unique temporary directory to avoid conflicts and symlink attacks
+let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+let iconDir = tempDir.appendingPathComponent("FnKeyboard.iconset")
+
+try! fm.createDirectory(at: iconDir, withIntermediateDirectories: true)
+
+// Cleanup the temporary directory when the script exits
+defer {
+    try? fm.removeItem(at: tempDir)
+}
 
 for spec in sizeSpecs {
     let img = renderIcon(size: spec.pixel)
@@ -139,14 +146,14 @@ for spec in sizeSpecs {
     guard let tiff = img.tiffRepresentation,
           let rep = NSBitmapImageRep(data: tiff),
           let png = rep.representation(using: .png, properties: [:]) else { continue }
-    try! png.write(to: URL(fileURLWithPath: "\(iconDir)/\(spec.suffix)"))
+    try! png.write(to: iconDir.appendingPathComponent(spec.suffix))
 }
 
 // Convert iconset → icns
 let outputPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "AppIcon.icns"
 let proc = Process()
 proc.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
-proc.arguments = ["-c", "icns", iconDir, "-o", outputPath]
+proc.arguments = ["-c", "icns", iconDir.path, "-o", outputPath]
 try! proc.run()
 proc.waitUntilExit()
 
