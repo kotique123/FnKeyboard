@@ -22,6 +22,24 @@ enum KeySimulator {
     /// Tracks the last simulation timestamp per key ID to prevent event flooding.
     private static var lastPressTimestamps: [Int: TimeInterval] = [:]
 
+    // MARK: - Constants
+
+    // NX Key Types (from IOKit/hidsystem/ev_keymap.h)
+    private static let NX_KEYTYPE_BRIGHTNESS_DOWN: Int32 = 3
+    private static let NX_KEYTYPE_BRIGHTNESS_UP: Int32 = 2
+    private static let NX_KEYTYPE_ILLUMINATION_DOWN: Int32 = 22
+    private static let NX_KEYTYPE_ILLUMINATION_UP: Int32 = 21
+    private static let NX_KEYTYPE_PREVIOUS: Int32 = 18
+    private static let NX_KEYTYPE_PLAY: Int32 = 16
+    private static let NX_KEYTYPE_NEXT: Int32 = 17
+    private static let NX_KEYTYPE_MUTE: Int32 = 7
+    private static let NX_KEYTYPE_SOUND_DOWN: Int32 = 1
+    private static let NX_KEYTYPE_SOUND_UP: Int32 = 0
+
+    // NX Event Flags
+    private static let NX_KEYDOWN_FLAG: Int32 = 0xa00
+    private static let NX_KEYUP_FLAG: Int32 = 0xb00
+
     /// Simulate pressing the function key with the given ID (1–12).
     /// Ignores calls that arrive faster than `minimumPressInterval` for the same key.
     /// Invalid key IDs outside the range 1–12 are silently ignored.
@@ -67,7 +85,7 @@ enum KeySimulator {
     /// - `data2: -1`   → Repeat count (−1 = no repeat)
     private static func sendHIDKey(code: Int32) {
         func postHIDEvent(keyDown: Bool) {
-            let flags: Int32 = keyDown ? 0xa00 : 0xb00         // NX key-down / key-up flags
+            let flags: Int32 = keyDown ? NX_KEYDOWN_FLAG : NX_KEYUP_FLAG
             let event = NSEvent.otherEvent(
                 with: .systemDefined,
                 location: .zero,
@@ -76,7 +94,7 @@ enum KeySimulator {
                 windowNumber: 0,
                 context: nil,
                 subtype: 8,                                     // NX_SUBTYPE_AUX_CONTROL_BUTTON
-                data1: Int((Int32(code) << 16) | (keyDown ? 0x0a00 : 0x0b00)),
+                data1: Int((Int32(code) << 16) | flags),
                 data2: -1                                       // No key repeat
             )
             event?.cgEvent?.post(tap: .cghidEventTap)
