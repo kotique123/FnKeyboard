@@ -3,11 +3,12 @@ import Carbon
 import IOKit
 import IOKit.hidsystem
 
-/// Simulates physical key presses for Mac function keys.
+/// Simulates physical key presses for Mac function keys and dispatches custom actions.
 ///
 /// - Brightness, keyboard backlight, media, and volume keys use HID system
 ///   events (NX key codes) because they are special system keys.
 /// - Mission Control and Launchpad use `CGEvent` key simulation.
+/// - Custom actions (openApp, openURL, shellCommand) are dispatched here.
 ///
 /// Marked `@MainActor` to guarantee thread-safe access to the mutable
 /// `lastPressTimestamps` dictionary (no concurrent mutations).
@@ -22,10 +23,11 @@ enum KeySimulator {
     /// Tracks the last simulation timestamp per key ID to prevent event flooding.
     private static var lastPressTimestamps: [Int: TimeInterval] = [:]
 
-    /// Simulate pressing the function key with the given ID (1–12).
+    /// Simulate pressing the function key with the given ID (1–12), using the
+    /// provided `KeyAction`. Defaults to `.system` if no action is supplied.
     /// Ignores calls that arrive faster than `minimumPressInterval` for the same key.
     /// Invalid key IDs outside the range 1–12 are silently ignored.
-    static func simulateKeyPress(fnId: Int) {
+    static func simulateKeyPress(fnId: Int, action: KeyAction = .system) {
         // Validate key ID range to prevent misuse
         guard (1...12).contains(fnId) else { return }
 
@@ -37,6 +39,21 @@ enum KeySimulator {
         }
         lastPressTimestamps[fnId] = now
 
+        switch action {
+        case .openApp(let bundleID):
+            dispatchOpenApp(bundleID: bundleID)
+        case .openURL(let url):
+            NSWorkspace.shared.open(url)
+        case .shellCommand(let cmd):
+            dispatchShell(cmd: cmd)
+        case .system:
+            dispatchSystem(fnId: fnId)
+        }
+    }
+
+    // MARK: - Action Dispatch
+
+    private static func dispatchSystem(fnId: Int) {
         switch fnId {
         case 1:  sendHIDKey(code: NX_KEYTYPE_BRIGHTNESS_DOWN)
         case 2:  sendHIDKey(code: NX_KEYTYPE_BRIGHTNESS_UP)
@@ -52,6 +69,25 @@ enum KeySimulator {
         case 12: sendHIDKey(code: NX_KEYTYPE_SOUND_UP)
         default: break
         }
+    }
+
+    private static func dispatchOpenApp(bundleID: String) {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+        else { return }
+        NSWorkspace.shared.openApplication(
+            at: url,
+            configuration: NSWorkspace.OpenConfiguration()
+        )
+    }
+
+    private static func dispatchShell(cmd: String) {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", cmd]
+        // Detach stdout/stderr so the shell output doesn't block the app
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        try? task.run()
     }
 
     // MARK: - HID System Events (media / brightness / volume)
