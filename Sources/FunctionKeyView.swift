@@ -5,10 +5,16 @@ import AppKit
 ///
 /// Uses system colors that automatically adapt to light / dark mode.
 /// Shows a tooltip with the key's function description on hover.
+/// When a custom `KeyAction` is stored for this key, the icon and
+/// tooltip reflect the override.
 struct FunctionKeyView: View {
     let key: FunctionKey
     var isPhysicallyPressed: Bool = false
+    /// Called after a successful tap, when auto-dismiss is enabled.
+    var onActivate: (() -> Void)? = nil
 
+    @EnvironmentObject private var actionStore: KeyActionStore
+    @EnvironmentObject private var stateMonitor: SystemStateMonitor
     @State private var isHovered = false
     @State private var isPressed = false
     @State private var lastTapTime: Date = .distantPast
@@ -16,17 +22,43 @@ struct FunctionKeyView: View {
     /// True when either tapped on-screen or physically pressed.
     private var isActive: Bool { isPressed || isPhysicallyPressed }
 
+    /// The action configured for this key.
+    private var action: KeyAction { actionStore.action(for: key.id) }
+
+    /// SF Symbol to display — custom action type icon when overridden.
+    private var displayIcon: String {
+        action == .system ? key.systemIcon : action.typeIcon
+    }
+
+    /// Tooltip text — custom action summary when overridden.
+    private var displayHelp: String {
+        action == .system ? key.functionDescription : action.displaySummary
+    }
+
     var body: some View {
         VStack(spacing: 2) {
-            Image(systemName: key.systemIcon)
+            Image(systemName: displayIcon)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.primary)
+                .foregroundStyle(action == .system ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint))
                 .opacity(isHovered ? 1.0 : 0.85)
                 .frame(height: 14)
 
             Text(key.label)
                 .font(.system(size: 8, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary.opacity(0.7))
+
+            // Live state indicator bar (brightness / volume / mute)
+            if let level = stateLevel {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.primary.opacity(0.1))
+                        Capsule().fill(stateBarColor).frame(width: geo.size.width * CGFloat(level))
+                    }
+                }
+                .frame(height: 2)
+                .padding(.horizontal, 4)
+                .transition(.opacity)
+            }
         }
         .frame(maxWidth: .infinity)
         .frame(height: 38)
@@ -45,8 +77,8 @@ struct FunctionKeyView: View {
             guard now.timeIntervalSince(lastTapTime) >= 0.2 else { return }
             lastTapTime = now
 
-            // Trigger the actual system function
-            KeySimulator.simulateKeyPress(fnId: key.id)
+            // Trigger the configured action
+            KeySimulator.simulateKeyPress(fnId: key.id, action: action)
 
             withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) {
                 isPressed = true
@@ -55,9 +87,28 @@ struct FunctionKeyView: View {
                 withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) {
                     isPressed = false
                 }
+                onActivate?()
             }
         }
-        .help(key.functionDescription)
+        .help(displayHelp)
+    }
+
+    // MARK: - State Indicator
+
+    /// 0.0–1.0 level to display as a mini bar, or nil if this key has no live state.
+    private var stateLevel: Float? {
+        guard action == .system else { return nil }
+        switch key.id {
+        case 1, 2:         return stateMonitor.brightness   // brightness keys
+        case 10:           return stateMonitor.isMuted ? 0 : stateMonitor.volume  // mute → empty bar
+        case 11, 12:       return stateMonitor.volume       // volume keys
+        default:           return nil
+        }
+    }
+
+    private var stateBarColor: Color {
+        if key.id == 10 && stateMonitor.isMuted { return .red.opacity(0.6) }
+        return .accentColor.opacity(0.6)
     }
 
     // MARK: - Keycap Appearance

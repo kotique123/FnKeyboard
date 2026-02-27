@@ -7,6 +7,12 @@ import AppKit
 struct KeyboardView: View {
 
     @StateObject private var keyMonitor = KeyPressMonitor()
+    @StateObject private var launchManager = LaunchAtLoginManager()
+    @StateObject private var stateMonitor = SystemStateMonitor()
+    @AppStorage("autoDismissAfterKeyPress") private var autoDismiss = false
+
+    /// Closure called when the popover should be dismissed (injected by AppDelegate).
+    var onDismiss: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +23,7 @@ struct KeyboardView: View {
             footer
         }
         .frame(width: 720)
+        .environmentObject(stateMonitor)
     }
 
     // MARK: - Header
@@ -31,6 +38,16 @@ struct KeyboardView: View {
                 .font(.system(.headline, design: .rounded))
                 .foregroundStyle(.primary)
             Spacer()
+            // Settings gear — opens ⌘, Settings window
+            Button {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Open Key Customization Settings (⌘,)")
         }
         .padding(.horizontal, 20)
         .padding(.top, 18)
@@ -47,7 +64,8 @@ struct KeyboardView: View {
                     ForEach(group.keys) { key in
                         FunctionKeyView(
                             key: key,
-                            isPhysicallyPressed: keyMonitor.pressedKeys.contains(key.id)
+                            isPhysicallyPressed: keyMonitor.pressedKeys.contains(key.id),
+                            onActivate: autoDismiss ? onDismiss : nil
                         )
                     }
                 }
@@ -59,7 +77,7 @@ struct KeyboardView: View {
 
     // MARK: - Footer
 
-    /// Hint text and quit button.
+    /// Hint text, toggles, and quit button.
     private var footer: some View {
         HStack(spacing: 6) {
             Image(systemName: "fn")
@@ -77,6 +95,27 @@ struct KeyboardView: View {
                 .foregroundStyle(.secondary)
 
             Spacer()
+
+            // Auto-dismiss toggle
+            Toggle(isOn: $autoDismiss) {
+                Text("Auto-close")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .toggleStyle(.checkbox)
+            .help("Close the popover automatically after pressing a key")
+
+            // Launch at Login toggle
+            Toggle(isOn: Binding(
+                get: { launchManager.isEnabled },
+                set: { launchManager.setEnabled($0) }
+            )) {
+                Text("Login")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .toggleStyle(.checkbox)
+            .help("Launch FnKeyboard automatically at login")
 
             Button(action: { NSApplication.shared.terminate(nil) }) {
                 Text("Quit")
