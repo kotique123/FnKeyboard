@@ -27,3 +27,6 @@ xcuserdata/
 # ── IDE ──
 .vscode/
 .idea/
+
+# -- Copilot Sessions --
+copilot-session*
